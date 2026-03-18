@@ -9,103 +9,122 @@ Original file is located at
 
 import streamlit as st
 import pandas as pd
-import catboost as cb # สมมติว่าคุณใช้ CatBoost เหมือนเดิม
+import pickle
+import os
+import numpy as np
 
-# --- ตั้งค่าหน้าจอ ---
-st.set_page_config(layout="wide")
-st.title("ระบบประเมินราคารถยนต์มือสอง (Automotive Dataset)")
+# --- 1. ตั้งค่าหน้าจอ ---
+st.set_page_config(page_title="Car Price Predictor", layout="wide")
 
-# --- 1. โหลดโมเดล (ปรับเปลี่ยน Path ตามจริง) ---
+# ส่วนหัวของแอป
+st.markdown("<h1 style='text-align: center;'>🚗 ระบบประเมินราคารถยนต์มือสอง (Automotive Dataset)</h1>", unsafe_allow_html=True)
+st.write("---")
+
+# --- 2. ฟังก์ชันโหลดโมเดล (.pkl) ---
 @st.cache_resource
 def load_model():
-    # เปลี่ยน path ไปยังไฟล์โมเดลของคุณ เช่น 'car_model.cbm'
-    model = cb.CatBoostRegressor()
-    model.load_model('best_car_price_model_catboost.pkl')
-    return model
+    # ชื่อไฟล์ตรงตามที่คุณอัปโหลดมา
+    model_path = 'best_car_price_model_catboost.pkl'
+
+    if os.path.exists(model_path):
+        try:
+            with open(model_path, 'rb') as f:
+                loaded_obj = pickle.load(f)
+            return loaded_obj
+        except Exception as e:
+            st.error(f"❌ Error loading pickle file: {e}")
+            return None
+    else:
+        st.error(f"❌ ไม่พบไฟล์โมเดล: {model_path}")
+        return None
 
 model = load_model()
 
-# --- 2. สร้าง Layout สำหรับรับค่า (Inputs) ---
-# แบ่งเป็น 3 คอลัมน์เพื่อให้หน้าจอไม่อัดแน่นเกินไป
+# หยุดทำงานหากโหลดโมเดลไม่ได้
+if model is None:
+    st.warning("กรุณาตรวจสอบว่าไฟล์ 'best_car_price_model_catboost.pkl' อยู่ในโฟลเดอร์เดียวกับโค้ดนี้")
+    st.stop()
+
+# --- 3. ส่วนรับข้อมูลจากผู้ใช้ (UI Inputs) ---
+# แบ่งเป็น 3 คอลัมน์เพื่อให้กรอกง่าย
 col1, col2, col3 = st.columns(3)
 
 with col1:
-    # 2.1 ข้อมูลพื้นฐาน
-    make = st.selectbox("ยี่ห้อ (Make)", options=['Toyota', 'Volkswagen', 'Lexus', 'Subaru', 'Cadillac', '...']) # ใส่ list เต็มๆ
-    model_name = st.selectbox("รุ่น (Model)", options=['Highlander', 'Jetta', 'RX', 'Crosstrek', 'Lyriq', '...'])
-    year = st.number_input("ปีที่ผลิต (Year)", min_value=1990, max_value=2024, value=2018)
-    mileage = st.number_input("ระยะทาง (Mileage)", min_value=0, value=100000, step=1000)
+    st.subheader("📌 ข้อมูลทั่วไป")
+    make = st.selectbox("ยี่ห้อ (Make)", ['Toyota', 'Volkswagen', 'Lexus', 'Subaru', 'Cadillac', 'Honda', 'Ford', 'BMW'])
+    model_name = st.text_input("รุ่น (Model)", value="Jetta")
+    year = st.number_input("ปีที่ผลิต (Year)", min_value=1990, max_value=2026, value=2016)
+    mileage = st.number_input("ระยะทางสะสม (Mileage)", min_value=0, value=100000)
+    condition = st.selectbox("สภาพรถ (Condition)", ['Excellent', 'Good', 'Fair', 'Poor'])
 
 with col2:
-    # 2.2 เครื่องยนต์และระบบขับเคลื่อน
-    engine_hp = st.number_input("แรงม้า (Engine HP)", min_value=50, max_value=1000, value=200)
-    transmission = st.selectbox("ระบบเกียร์", options=['Manual', 'Automatic'])
-    fuel_type = st.selectbox("เชื้อเพลิง", options=['Diesel', 'Electric', 'Gasoline'])
-    drivetrain = st.selectbox("ระบบขับเคลื่อน", options=['FWD', 'RWD', 'AWD'])
-    body_type = st.selectbox("ประเภทตัวถัง", options=['Sedan', 'SUV', 'Hatchback', '...'])
+    st.subheader("⚙️ สเปกเครื่องยนต์")
+    engine_hp = st.number_input("แรงม้า (Engine HP)", min_value=50, max_value=1000, value=150)
+    transmission = st.selectbox("ระบบเกียร์", ['Manual', 'Automatic'])
+    fuel_type = st.selectbox("ประเภทเชื้อเพลิง", ['Gasoline', 'Diesel', 'Electric', 'Hybrid'])
+    drivetrain = st.selectbox("ระบบขับเคลื่อน", ['FWD', 'RWD', 'AWD'])
+    body_type = st.selectbox("ประเภทตัวถัง", ['Sedan', 'SUV', 'Hatchback', 'Coupe'])
 
 with col3:
-    # 2.3 รายละเอียดอื่นๆ และสภาพรถ
-    exterior_color = st.selectbox("สีภายนอก", options=['Red', 'Blue', 'Black', 'Silver', '...'])
-    interior_color = st.selectbox("สีภายใน", options=['Brown', 'Beige', 'Gray', 'Black', '...'])
-    owner_count = st.slider("จำนวนเจ้าของ", min_value=1, max_value=10, value=1)
-    accident_history = st.selectbox("ประวัติอุบัติเหตุ", options=['NaN', 'Minor', 'Moderate', 'Severe']) # 'NaN' แปลว่าไม่มี
-    seller_type = st.radio("ประเภทผู้ขาย", options=['Dealer', 'Private'])
-    condition = st.selectbox("สภาพรถ", options=['Excellent', 'Good', 'Fair'])
+    st.subheader("🎨 รายละเอียดอื่นๆ")
+    exterior_color = st.selectbox("สีภายนอก", ['White', 'Black', 'Silver', 'Blue', 'Red'])
+    interior_color = st.selectbox("สีภายใน", ['Black', 'Beige', 'Gray', 'Brown'])
+    owner_count = st.number_input("จำนวนเจ้าของที่ผ่านมา", min_value=1, max_value=10, value=1)
+    accident_history = st.selectbox("ประวัติอุบัติเหตุ", ['None', 'Minor', 'Moderate', 'Severe'])
+    seller_type = st.radio("ประเภทผู้ขาย", ['Dealer', 'Private'])
     trim = st.text_input("รุ่นย่อย (Trim)", value="Standard")
 
-# --- 3. เตรียมข้อมูลและทำนายผล ---
-# จุดสำคัญ: สร้างคอลัมน์ใหม่เหมือนในข้อมูล (Feature Engineering)
-current_year = 2024
+# --- 4. การคำนวณ Feature เพิ่มเติม (Feature Engineering) ---
+# ให้ตรงกับคอลัมน์ใน Dataset (vehicle_age, mileage_per_year, brand_popularity)
+current_year = 2026
 vehicle_age = current_year - year
-# ป้องกันการหารด้วยศูนย์
 mileage_per_year = mileage / vehicle_age if vehicle_age > 0 else mileage
-brand_popularity = 0.04 # สมมติค่าเฉลี่ย หรือคุณต้องมีโมเดลอื่นคำนวณแยก
+brand_popularity = 0.04  # ค่าสมมติจากค่าเฉลี่ยในชุดข้อมูลของคุณ
 
-if st.button("ทำนายราคา", type="primary"):
-    # 3.1 สร้าง Dictionary ตามลำดับคอลัมน์ที่ถูกต้องเป๊ะๆ
-    data = {
+# --- 5. ส่วนการทำนายผล ---
+st.write("---")
+if st.button("💰 คำนวณราคาประเมิน", type="primary", use_container_width=True):
+
+    # สร้าง Dictionary ให้ตรงกับชื่อคอลัมน์ตอน Train (ลำดับสำคัญมาก)
+    input_data = {
         'make': [make],
         'model': [model_name],
-        'year': [year],
-        'mileage': [mileage],
-        'engine_hp': [engine_hp],
+        'year': [int(year)],
+        'mileage': [int(mileage)],
+        'engine_hp': [int(engine_hp)],
         'transmission': [transmission],
         'fuel_type': [fuel_type],
         'drivetrain': [drivetrain],
         'body_type': [body_type],
         'exterior_color': [exterior_color],
         'interior_color': [interior_color],
-        'owner_count': [owner_count],
-        'accident_history': [accident_history],
+        'owner_count': [int(owner_count)],
+        'accident_history': [None if accident_history == 'None' else accident_history], # แปลง None ตามข้อมูลจริง
         'seller_type': [seller_type],
         'condition': [condition],
         'trim': [trim],
-        'vehicle_age': [vehicle_age],
-        'mileage_per_year': [mileage_per_year],
-        'brand_popularity': [brand_popularity]
+        'vehicle_age': [int(vehicle_age)],
+        'mileage_per_year': [float(mileage_per_year)],
+        'brand_popularity': [float(brand_popularity)]
     }
 
-    # 3.2 สร้าง DataFrame และบังคับชนิดข้อมูล
-    input_df = pd.DataFrame(data)
+    # แปลงเป็น DataFrame
+    input_df = pd.DataFrame(input_data)
 
-    # บังคับคอลัมน์ที่เป็นตัวเลข
-    input_df['year'] = input_df['year'].astype('int64')
-    input_df['mileage'] = input_df['mileage'].astype('int64')
-    input_df['engine_hp'] = input_df['engine_hp'].astype('int64')
-    input_df['owner_count'] = input_df['owner_count'].astype('int64')
-    input_df['vehicle_age'] = input_df['vehicle_age'].astype('int64')
-    input_df['mileage_per_year'] = input_df['mileage_per_year'].astype('float64')
-    input_df['brand_popularity'] = input_df['brand_popularity'].astype('float64')
-
-    # 3.3 แสดงข้อมูลที่ส่งไป (เพื่อตรวจสอบ)
-    with st.expander("ดูข้อมูลที่ส่งไปทำนาย"):
-        st.write(input_df)
-
-    # 3.4 ทำนาย
     try:
+        # ทำนายราคา
         prediction = model.predict(input_df)[0]
-        # 3.5 แสดงผล
-        st.success(f"ราคาประเมินคือ: ฿{prediction:,.2f}")
+
+        # แสดงผลลัพธ์
+        st.success(f"### ราคาประเมินอยู่ที่ประมาณ: ${prediction:,.2f}")
+
+        # แสดงข้อมูลที่ใช้คำนวณ (เผื่อตรวจสอบ)
+        with st.expander("🔍 ดูรายละเอียดข้อมูลที่ส่งให้โมเดล"):
+            st.table(input_df)
+
     except Exception as e:
         st.error(f"เกิดข้อผิดพลาดในการทำนาย: {e}")
+        st.info("สาเหตุอาจเกิดจากชื่อคอลัมน์ใน input_df ไม่ตรงกับตอน Train โมเดล")
+
+# ส่วนท้าย
+st.caption("หมายเหตุ: ราคาที่แสดงเป็นเพียงราคาประเมินจากข้อมูลทางสถิติเท่านั้น")
