@@ -13,20 +13,11 @@ import pickle
 import os
 import numpy as np
 
-# --- 1. ตั้งค่าหน้าจอ (UI Setup) ---
+# --- 1. ตั้งค่าหน้าจอ ---
 st.set_page_config(page_title="Car Price Predictor", layout="wide")
+st.markdown("<h1 style='text-align: center;'>🚗 ระบบประเมินราคารถยนต์มือสอง</h1>", unsafe_allow_html=True)
 
-# ปรับแต่งสไตล์หัวข้อ
-st.markdown("""
-    <style>
-    .main-title { text-align: center; color: #FF4B4B; font-size: 40px; font-weight: bold; }
-    </style>
-    <h1 class='main-title'>🚗 ระบบประเมินราคารถยนต์มือสอง</h1>
-    <p style='text-align: center;'>วิเคราะห์ราคาด้วย Machine Learning (CatBoost)</p>
-    """, unsafe_allow_html=True)
-st.write("---")
-
-# --- 2. ฟังก์ชันโหลดโมเดล (.pkl) ---
+# --- 2. โหลดโมเดล ---
 @st.cache_resource
 def load_model():
     model_path = 'best_car_price_model_catboost.pkl'
@@ -35,105 +26,78 @@ def load_model():
             with open(model_path, 'rb') as f:
                 return pickle.load(f)
         except Exception as e:
-            st.error(f"Error Loading Model: {e}")
+            st.error(f"Error: {e}")
     return None
 
 model = load_model()
 
-if model is None:
-    st.error("❌ ไม่พบไฟล์โมเดล 'best_car_price_model_catboost.pkl' ใน Directory")
-    st.stop()
-
-# --- 3. ส่วนรับข้อมูลจากผู้ใช้ (Inputs) ---
+# --- 3. ส่วนรับข้อมูล (UI) ---
 col1, col2, col3 = st.columns(3)
 
 with col1:
-    st.markdown("### 📋 ข้อมูลพื้นฐาน")
-    make = st.selectbox("ยี่ห้อ (Make)", ['Volkswagen', 'Lexus', 'Subaru', 'Cadillac', 'Toyota', 'Honda', 'Ford', 'BMW'])
-    model_name = st.text_input("รุ่น (Model)", value="Jetta")
-    year = st.number_input("ปีที่ผลิต (Year)", min_value=1990, max_value=2026, value=2016)
-    mileage = st.number_input("เลขไมล์ (Mileage)", min_value=0, value=183903)
-    engine_hp = st.number_input("แรงม้า (Engine HP)", min_value=50, value=173)
+    make = st.selectbox("Make", ['Volkswagen', 'Lexus', 'Subaru', 'Cadillac', 'Toyota', 'Honda', 'Ford', 'BMW'])
+    model_name = st.text_input("Model", value="Jetta")
+    year = st.number_input("Year", value=2016)
+    mileage = st.number_input("Mileage", value=183903)
+    engine_hp = st.number_input("Engine HP", value=173)
 
 with col2:
-    st.markdown("### ⚙️ สเปกเครื่องยนต์")
-    transmission = st.selectbox("ระบบเกียร์", ['Manual', 'Automatic'])
-    fuel_type = st.selectbox("เชื้อเพลิง", ['Electric', 'Gasoline', 'Diesel', 'Hybrid', 'LPG', 'CNG'])
-    drivetrain = st.selectbox("ระบบขับเคลื่อน", ['RWD', 'FWD', 'AWD'])
-    body_type = st.selectbox("ประเภทตัวถัง", ['Sedan', 'SUV', 'Hatchback', 'Coupe', 'Wagon'])
-    owner_count = st.slider("จำนวนเจ้าของ", 1, 10, 5)
+    transmission = st.selectbox("Transmission", ['Manual', 'Automatic'])
+    fuel_type = st.selectbox("Fuel Type", ['Electric', 'Gasoline', 'Diesel', 'Hybrid'])
+    drivetrain = st.selectbox("Drivetrain", ['RWD', 'FWD', 'AWD'])
+    body_type = st.selectbox("Body Type", ['Sedan', 'SUV', 'Hatchback', 'Coupe'])
+    owner_count = st.number_input("Owner Count", value=5)
 
 with col3:
-    st.markdown("### ✨ รายละเอียดเพิ่มเติม")
-    exterior_color = st.text_input("สีภายนอก", value="Blue")
-    interior_color = st.text_input("สีภายใน", value="Brown")
-    accident_history = st.selectbox("ประวัติอุบัติเหตุ", ['None', 'Minor', 'Moderate', 'Severe'])
-    seller_type = st.radio("ผู้ขาย", ['Dealer', 'Private'])
-    condition = st.selectbox("สภาพรถ", ['Excellent', 'Good', 'Fair', 'Poor'])
-    trim = st.text_input("รุ่นย่อย (Trim)", value="EX")
+    exterior_color = st.text_input("Exterior Color", value="Blue")
+    interior_color = st.text_input("Interior Color", value="Brown")
+    accident_history = st.selectbox("Accident History", ['None', 'Minor', 'Moderate', 'Severe'])
+    seller_type = st.selectbox("Seller Type", ['Dealer', 'Private'])
+    condition = st.selectbox("Condition", ['Excellent', 'Good', 'Fair', 'Poor'])
+    trim = st.text_input("Trim", value="EX")
 
-# --- 4. การจัดการข้อมูลก่อนทำนาย (Preprocessing) ---
-# คำนวณค่าที่โมเดลต้องการ (เหมือนในรูป Index 16, 17, 18)
+# คำนวณค่าเพิ่มเติม
 current_year = 2026
 v_age = current_year - year
 m_per_year = mileage / v_age if v_age > 0 else mileage
-b_popularity = 0.040054 # ค่า default ตามภาพตัวอย่างของคุณ
+b_popularity = 0.040054
 
-# --- 5. ปุ่มทำนายผล ---
-st.write("---")
+# --- 4. ส่วนการทำนาย ---
 if st.button("💰 คำนวณราคาประเมิน", type="primary", use_container_width=True):
 
-    # สร้างโครงสร้างข้อมูลให้ตรงกับ Index 0-18 เป๊ะๆ
-    input_dict = {
-        'make': [make],
-        'model': [model_name],
-        'year': [int(year)],
-        'mileage': [int(mileage)],
-        'engine_hp': [int(engine_hp)],
-        'transmission': [transmission],
-        'fuel_type': [fuel_type],
-        'drivetrain': [drivetrain],
-        'body_type': [body_type],
-        'exterior_color': [exterior_color],
-        'interior_color': [interior_color],
-        'owner_count': [int(owner_count)],
-        'accident_history': [np.nan if accident_history == 'None' else accident_history],
-        'seller_type': [seller_type],
-        'condition': [condition],
-        'trim': [trim],
-        'vehicle_age': [int(v_age)],
-        'mileage_per_year': [float(m_per_year)],
-        'brand_popularity': [float(b_popularity)]
-    }
-
-    input_df = pd.DataFrame(input_dict)
-
-    # ตรวจสอบลำดับคอลัมน์อีกครั้งก่อนส่งให้ CatBoost
+    # สร้าง DataFrame ตามลำดับ Index 0-18 เป๊ะๆ
     cols_order = [
         'make', 'model', 'year', 'mileage', 'engine_hp', 'transmission',
         'fuel_type', 'drivetrain', 'body_type', 'exterior_color',
         'interior_color', 'owner_count', 'accident_history', 'seller_type',
         'condition', 'trim', 'vehicle_age', 'mileage_per_year', 'brand_popularity'
     ]
-    input_df = input_df[cols_order]
+
+    input_data = {
+        'make': [make], 'model': [model_name], 'year': [int(year)], 'mileage': [int(mileage)],
+        'engine_hp': [int(engine_hp)], 'transmission': [transmission], 'fuel_type': [fuel_type],
+        'drivetrain': [drivetrain], 'body_type': [body_type], 'exterior_color': [exterior_color],
+        'interior_color': [interior_color], 'owner_count': [int(owner_count)],
+        'accident_history': [np.nan if accident_history == 'None' else accident_history],
+        'seller_type': [seller_type], 'condition': [condition], 'trim': [trim],
+        'vehicle_age': [int(v_age)], 'mileage_per_year': [float(m_per_year)], 'brand_popularity': [float(b_popularity)]
+    }
+
+    input_df = pd.DataFrame(input_data)[cols_order]
+
+    # แปลงคอลัมน์ที่เป็นข้อความให้เป็น string ทั้งหมดเพื่อป้องกัน Warning
+    cat_features = [col for col in input_df.columns if input_df[col].dtype == 'object']
+    for col in cat_features:
+        input_df[col] = input_df[col].astype(str)
 
     try:
         # ทำนายราคา
-        res = model.predict(input_df)[0]
+        prediction = model.predict(input_df)[0]
+        st.success(f"### ราคาประเมินคือ: ${prediction:,.2f}")
 
-        # แสดงผลลัพธ์แบบสวยงาม
-        st.balloons()
-        st.markdown(f"""
-            <div style="background-color:#f0f2f6; padding: 20px; border-radius: 10px; text-align: center;">
-                <h2 style="color: #333;">ราคาประเมินของคุณคือ</h2>
-                <h1 style="color: #FF4B4B;">${res:,.2f}</h1>
-            </div>
-            """, unsafe_allow_html=True)
+        # แสดงตารางข้อมูลที่ส่งไป
+        with st.expander("ดูข้อมูลที่ใช้คำนวณ"):
+            st.dataframe(input_df)
 
     except Exception as e:
-        st.error(f"เกิดข้อผิดพลาดในการคำนวณ: {e}")
-        st.info("ตรวจสอบว่าคอลัมน์ใน input_df (19 columns) ตรงกับที่โมเดลต้องการหรือไม่")
-
-# ส่วนท้าย
-st.write("---")
-st.caption("Machine Learning Model: CatBoost Regressor | Dataset: Automotive 1M rows")
+        st.error(f"เกิดข้อผิดพลาด: {e}")
