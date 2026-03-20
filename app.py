@@ -7,6 +7,11 @@ Original file is located at
     https://colab.research.google.com/drive/1YTQm1oEM8QLVYqSV6HXwRcpJVa9E2AmB
 """
 
+# -*- coding: utf-8 -*-
+"""
+Car Price Predictor App
+"""
+
 import streamlit as st
 import pandas as pd
 import pickle
@@ -65,7 +70,7 @@ b_popularity = 0.040054
 # --- 4. ส่วนการทำนาย ---
 if st.button("💰 คำนวณราคาประเมิน", type="primary", use_container_width=True):
 
-    # สร้าง DataFrame ตามลำดับ Index 0-18 เป๊ะๆ
+    # สร้าง DataFrame ตามลำดับ Index 0-18
     cols_order = [
         'make', 'model', 'year', 'mileage', 'engine_hp', 'transmission',
         'fuel_type', 'drivetrain', 'body_type', 'exterior_color',
@@ -78,26 +83,36 @@ if st.button("💰 คำนวณราคาประเมิน", type="prim
         'engine_hp': [int(engine_hp)], 'transmission': [transmission], 'fuel_type': [fuel_type],
         'drivetrain': [drivetrain], 'body_type': [body_type], 'exterior_color': [exterior_color],
         'interior_color': [interior_color], 'owner_count': [int(owner_count)],
-        'accident_history': [np.nan if accident_history == 'None' else accident_history],
+        # แก้ไขจุดที่ 1: ใช้สตริง 'nan' ตรงๆ เลย ถ้าไม่มีประวัติอุบัติเหตุ
+        'accident_history': ['nan' if accident_history == 'None' else accident_history],
         'seller_type': [seller_type], 'condition': [condition], 'trim': [trim],
         'vehicle_age': [int(v_age)], 'mileage_per_year': [float(m_per_year)], 'brand_popularity': [float(b_popularity)]
     }
 
     input_df = pd.DataFrame(input_data)[cols_order]
 
-    # แปลงคอลัมน์ที่เป็นข้อความให้เป็น string ทั้งหมดเพื่อป้องกัน Warning
-    cat_features = [col for col in input_df.columns if input_df[col].dtype == 'object']
+    # แก้ไขจุดที่ 2: กำหนดคอลัมน์ที่เป็น Categorical ให้ชัดเจนแทนการเช็ค object type
+    cat_features = [
+        'make', 'model', 'transmission', 'fuel_type', 'drivetrain',
+        'body_type', 'exterior_color', 'interior_color', 'accident_history',
+        'seller_type', 'condition', 'trim'
+    ]
+
+    # บังคับแปลงเป็น string ทั้งหมด
     for col in cat_features:
         input_df[col] = input_df[col].astype(str)
 
     try:
-        # ทำนายราคา
-        prediction = model.predict(input_df)[0]
-        st.success(f"### ราคาประเมินคือ: ${prediction:,.2f}")
+        if model is not None:
+            # ทำนายราคา
+            prediction = model.predict(input_df)[0]
+            st.success(f"### ราคาประเมินคือ: ${prediction:,.2f}")
 
-        # แสดงตารางข้อมูลที่ส่งไป
-        with st.expander("ดูข้อมูลที่ใช้คำนวณ"):
-            st.dataframe(input_df)
+            # แสดงตารางข้อมูลที่ส่งไป
+            with st.expander("ดูข้อมูลที่ใช้คำนวณ"):
+                st.dataframe(input_df)
+        else:
+            st.error("ไม่สามารถโหลดโมเดลได้ โปรดตรวจสอบไฟล์ 'best_car_price_model_catboost.pkl'")
 
     except Exception as e:
-        st.error(f"เกิดข้อผิดพลาด: {e}")
+        st.error(f"เกิดข้อผิดพลาดระหว่างทำนาย: {e}")
